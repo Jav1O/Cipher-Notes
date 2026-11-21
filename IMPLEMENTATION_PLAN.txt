@@ -1,0 +1,726 @@
+CIPHERNOTES - PLAN DE IMPLEMENTACION Y COORDINACION
+Version del plan: 1.0 | Fecha: 22-11-2026
+Documento de trabajo para dos desarrolladores y sus asistentes de IA.
+
+======================================================================
+0. COMO UTILIZAR ESTE ARCHIVO (LEER ANTES DE TOCAR EL CODIGO)
+======================================================================
+
+OBJETIVO
+Desarrollar CipherNotes, un gestor LOCAL de notas privadas en Python,
+con registro/login, cifrado autenticado AES-256-GCM, firmas digitales
+RSA-PSS/SHA-256, proteccion de claves y persistencia SQLite.
+
+DOCUMENTOS DE REFERENCIA (orden de prioridad)
+1. Practica_final.pdf: obligaciones, evaluacion y condiciones de entrega.
+2. Propuesta_Proyecto_Final_Criptografia_NotasSeguras_ACTUALIZADA.pdf:
+   decisiones funcionales y criptograficas acordadas.
+3. Este IMPLEMENTATION_PLAN.txt: contratos, fases y coordinacion.
+4. README.md: presentacion publica del producto. Puede describir
+   funcionalidades previstas como si estuvieran terminadas; NO es prueba
+   de que exista codigo.
+5. Practicas 1-4 y modulos M1-M10: material tecnico de referencia.
+
+Si surge una contradiccion, respetar primero el enunciado y despues
+la propuesta. Antes de cambiar una decision importante, discutirla y
+registrar el cambio en la seccion 16 de este documento.
+
+REGLAS PARA CUALQUIER PERSONA O IA QUE RETOME EL REPOSITORIO
+- Leer este archivo completo y la propuesta actualizada.
+- Inspeccionar primero los archivos REALES, los commits y los tests.
+- No asumir que una casilla [x] prueba que algo funciona: verificarlo.
+- No dar por hecho que el README refleja la implementacion actual.
+- Ejecutar las pruebas disponibles antes de modificar nada.
+- Respetar interfaces/formatos acordados para evitar incompatibilidades.
+- Trabajar en ramas separadas; no sobrescribir cambios del companero.
+- Actualizar las casillas, la seccion 15 (estado) y el registro de cambios
+  al terminar una unidad de trabajo. Registrar ruta de archivos y tests.
+- Si se descubre un fallo, volver a marcar la tarea como pendiente.
+- No declarar una fase terminada sin pruebas y revision del codigo.
+
+ESTADO INICIAL AL CREAR ESTE PLAN
+- Requisitos estudiados: SI.
+- Propuesta actualizada: SI.
+- Nombre del repositorio: CipherNotes.
+- README preparado: SI (descriptivo/hipotetico).
+- Codigo de la aplicacion implementado: NO CONFIRMADO / INICIO EN 0.
+- Tests ejecutados: NINGUNO.
+- GitHub remoto: creado por el usuario; NO inspeccionado desde aqui.
+
+======================================================================
+1. ALCANCE DEL PRODUCTO (QUE SE VA A ENTREGAR)
+======================================================================
+
+FUNCIONES OBLIGATORIAS
+[A] Registro de un usuario con nombre unico y contrasena robusta.
+[B] Inicio de sesion y cierre de sesion.
+[C] Crear nota privada con titulo y contenido.
+[D] Listar notas propias (sin exponer titulos en claro en la BD).
+[E] Leer una nota: verificar firma y autenticacion antes de mostrar datos.
+[F] Verificar expresamente la firma digital de una nota.
+[G] Persistir y recuperar datos entre ejecuciones.
+[H] Rechazar credenciales incorrectas, notas ajenas y manipulaciones.
+[I] Ejecutar pruebas positivas/negativas y documentar resultados.
+
+FUERA DEL ALCANCE DE ESTA PRIMERA VERSION
+- Web, API, app movil, nube, sincronizacion, comparticion entre cuentas.
+- PKI completa, certificados propios, identidades verificadas externamente.
+- Autenticacion biometrica, 2FA, envio de correos o SMS.
+- Cambio/recuperacion de contrasena; si se olvida, no se recuperan notas.
+- Edicion/borrado de notas, busqueda indexada, historial y auditoria remota.
+- Garantias antirrollback, antirrestauracion o antiborrado de la BD.
+No introducir funciones adicionales sin cerrar antes los requisitos.
+
+ENTORNO
+- Python (version exacta comprobada y fijada al desarrollar).
+- Librerias externas: cryptography, bcrypt.
+- SQLite mediante sqlite3 de la biblioteca estandar.
+- Pruebas con unittest de la biblioteca estandar (sin framework adicional).
+- Interfaz de consola, no grafica.
+
+======================================================================
+2. DECISIONES CRIPTOGRAFICAS APROBADAS
+======================================================================
+
+AUTENTICACION
+- bcrypt.hashpw() + bcrypt.gensalt() para almacenar el verificador.
+- bcrypt.checkpw() para validar login.
+- Coste inicial propuesto: 12. Registrar el coste realmente utilizado.
+- Usar contrasenas UTF-8, sin recortes silenciosos; bcrypt admite como
+  maximo 72 bytes de entrada, por lo que el registro debera rechazar
+  longitudes superiores (tambien validar longitud minima definida).
+- Nunca almacenar contrasenas en texto claro ni usar SHA-256 simple.
+
+DERIVACION DE LA CLAVE QUE PROTEGE LOS SECRETOS (KEK)
+- PBKDF2HMAC con SHA-256, sal aleatoria INDEPENDIENTE de bcrypt,
+  longitud de salida 32 bytes.
+- Sal sugerida de 16 bytes (os.urandom(16)).
+- Parametro inicial de referencia: 600000 iteraciones; comprobar el
+  rendimiento real y registrar el valor definitivo en la memoria.
+- La KEK se deriva de la contrasena introducida en cada login.
+- Ni la contrasena ni la KEK se guardan en la base de datos.
+
+CIFRADO DE NOTAS Y DE CLAVES
+- AESGCM de cryptography con claves de 256 bits.
+- Nonce aleatorio nuevo de 12 bytes para CADA operacion AES-GCM.
+- AESGCM.encrypt devuelve ciphertext y tag juntos. Guardarlos juntos.
+- Usar AAD determinista, definido en la seccion 5.
+- No reutilizar un nonce bajo la misma clave. Para notas, imponer una
+  restriccion UNIQUE(owner_id, nonce) y reintentar ante colision.
+- Las claves de notas DEK seran aleatorias (AESGCM.generate_key(256)).
+- No dejar claves AES incrustadas en el codigo o en un .env.
+
+FIRMA DIGITAL
+- RSA, 2048 bits y exponente publico 65537, conforme a la propuesta.
+- RSA-PSS con MGF1(SHA-256), SHA-256 y salt_length=PSS.MAX_LENGTH
+  (parametros explicitos e identicos al firmar y verificar).
+- Firmar los bytes canonicos del registro de nota cifrada, no una
+  concatenacion ambigua de cadenas ni solamente el texto del titulo.
+- Clave privada serializada como PKCS8 DER y protegida con AES-GCM
+  mediante la KEK; nunca persistir la privada DER sin cifrar.
+- Clave publica serializada como SubjectPublicKeyInfo DER; la BD local
+  vincula esta clave a la cuenta, NO equivale a un certificado X.509.
+
+POR QUE ESTOS METODOS
+- bcrypt y PBKDF: Practica 1 (hashes y contrasenas), ejercicio 4.
+- AES-GCM: Practica 2, ejercicio 5, y modulo M4.
+- RSA y SHA-256: Practica 3; PSS es la adaptacion segura del esquema
+  de firma RSA, NO el padding de firma copiado del ejemplo inicial.
+- Claves publicas e identidad: Practica 4 y modulo M8.
+- AES-GCM satisface cifrado + integridad/autenticidad. No se requiere
+  HMAC independiente para este alcance. RSA-PSS es requisito aparte.
+
+======================================================================
+3. ESTRUCTURA PROPUESTA DEL REPOSITORIO
+======================================================================
+
+CipherNotes/
+|-- README.md
+|-- IMPLEMENTATION_PLAN.txt
+|-- Practica_final.pdf                  (si el equipo decide incluirlo)
+|-- docs/
+|   |-- propuesta_actualizada.pdf      (si se incluye, sin datos personales)
+|   `-- capturas/                   (solo capturas anonimizadas)
+|-- requirements.txt
+|-- .gitignore
+|-- main.py                         (punto de entrada)
+|-- models.py                       (estructuras y excepciones compartidas)
+|-- formats.py                      (representaciones canonicas y AAD)
+|-- auth.py                         (bcrypt, registro y login)
+|-- keys.py                         (PBKDF2, KEK y proteccion de claves)
+|-- crypto.py                       (cifrado AES-GCM)
+|-- signatures.py                   (RSA-PSS)
+|-- storage.py                      (tablas y consultas SQLite)
+|-- service.py                      (reglas de notas y autorizacion)
+|-- cli.py                          (menu y sesion interactiva)
+|-- tests/
+|   |-- test_auth.py
+|   |-- test_keys.py
+|   |-- test_crypto.py
+|   |-- test_signatures.py
+|   |-- test_storage.py
+|   `-- test_integration.py
+`-- .local/                        (creada en ejecucion; ignorada por git)
+    `-- ciphernotes.db
+
+Nota: puede reorganizarse en un paquete Python si AMBOS lo acuerdan antes
+; nunca mantener dos estructuras paralelas incompatibles.
+
+.gitignore debe cubrir como minimo:
+- .venv/, __pycache__/, *.pyc, .pytest_cache/, .coverage
+- .local/, *.db, *.sqlite, *.sqlite3
+- .env, *.key, *.pem, *.p12, *.pfx, *.der
+- archivos de logs y ficheros de test que contengan secretos.
+No ignorar requirements.txt ni los propios tests.
+
+======================================================================
+4. MODELO DE DATOS Y PERSISTENCIA (CONTRATO)
+======================================================================
+
+Identificadores:
+- user_id y note_id: uuid.uuid4().hex (32 caracteres) generados por
+  la aplicacion. Son identificadores, NO claves criptograficas.
+- username: entre 3 y 32 caracteres ASCII [a-zA-Z0-9_], convertido
+  a minusculas para comprobar unicidad coherente.
+- Version inicial del formato de notas: integer 1.
+- Todos los binarios van en columnas SQLite BLOB (no Base64 en BD).
+
+TABLA users
+    id TEXT PRIMARY KEY
+    username TEXT NOT NULL UNIQUE
+    password_hash BLOB NOT NULL                -- bcrypt
+    kdf_salt BLOB NOT NULL                    -- PBKDF2
+    kdf_iterations INTEGER NOT NULL
+    dek_nonce BLOB NOT NULL                   -- wrap AES-GCM
+    encrypted_dek BLOB NOT NULL               -- ciphertext+tag
+    rsa_nonce BLOB NOT NULL                   -- wrap AES-GCM
+    encrypted_private_key BLOB NOT NULL       -- PKCS8 DER cifrado+tag
+    public_key_der BLOB NOT NULL              -- SPKI DER
+
+TABLA notes
+    id TEXT PRIMARY KEY
+    owner_id TEXT NOT NULL REFERENCES users(id)
+    format_version INTEGER NOT NULL
+    nonce BLOB NOT NULL                       -- 12 bytes
+    ciphertext BLOB NOT NULL                  -- contenido+tag
+    signature BLOB NOT NULL                   -- RSA-PSS
+    UNIQUE(owner_id, nonce)
+
+- Habilitar PRAGMA foreign_keys = ON en cada conexion SQLite.
+- Crear indices basicos en notes(owner_id).
+- Usar consultas SQL parametrizadas y transacciones.
+- SELECT de nota siempre restringido por id Y owner_id de la sesion.
+- No guardar titulo ni cuerpo en claro en ninguna columna.
+- No guardar claves DEK, KEK ni privadas RSA sin cifrar.
+- Mantener la creacion de usuario y de sus claves en una sola
+  transaccion, o revertir completamente ante cualquier error.
+- Las claves envueltas se distinguen por su AAD de proposito (ver 5).
+
+======================================================================
+5. FORMATO CANONICO Y CONTRATOS DE SEGURIDAD
+======================================================================
+
+TODOS LOS MODULOS DEBEN USAR EL MISMO FORMATO.
+formats.py sera la UNICA fuente de verdad para construir estos bytes.
+
+Regla de serializacion canonica:
+    json.dumps(obj, sort_keys=True, separators=(',', ':'),
+               ensure_ascii=True).encode('utf-8')
+- Claves JSON exactas y tipos controlados.
+- Evitar floats y objetos arbitrarios.
+- No concatenar campos sin longitud, delimitacion o estructura.
+
+Contenido de nota (antes de cifrar):
+    {"title": <str>, "body": <str>}
+Las dos propiedades se cifran juntas como bytes JSON canonicos.
+Titulo y cuerpo no salen de la aplicacion sin autenticar.
+
+AAD de la nota (autenticado por GCM pero no cifrado):
+    {"kind":"ciphernotes-note", "version":1,
+     "owner_id":<user_id>, "note_id":<note_id>}
+Cada campo se construye con el identificador del propietario REAL
+extraido de la sesion y del registro SQLite. No del input arbitrario.
+
+Payload que se firma (bytes canonicos):
+    {"kind":"ciphernotes-signed-note", "version":1,
+     "owner_id":<user_id>, "note_id":<note_id>,
+     "nonce":<base64 estandar del nonce>,
+     "ciphertext":<base64 estandar de ciphertext+tag>}
+RSA-PSS firma exactamente esos bytes; el campo signature queda FUERA
+para evitar circularidad. Usar base64.b64encode(...).decode('ascii').
+
+AAD para envolver la clave de notas bajo la KEK:
+    {"kind":"ciphernotes-key-wrap", "version":1,
+     "user_id":<user_id>, "purpose":"notes-dek"}
+
+AAD para envolver la clave privada RSA bajo la KEK:
+    {"kind":"ciphernotes-key-wrap", "version":1,
+     "user_id":<user_id>, "purpose":"rsa-private"}
+
+ATENCION A LAS VERIFICACIONES
+- Primero confirmar propietario y version admitida.
+- Despues verificar RSA-PSS sobre el registro firmado.
+- Despues AES-GCM.decrypt con AAD reconstruida.
+- Solo mostrar el titulo y el cuerpo si TODAS pasan.
+- Un fallo de firma NO se corrige saltandose la verificacion.
+- Un fallo de tag provoca rechazo; nunca usar plaintext parcial.
+- El comando de verificacion puede comprobar firma sin mostrar nota.
+
+LIMITACION DE CONFIANZA
+La clave publica se obtiene de la cuenta local. Eso identifica la
+clave asociada a esa cuenta en la BD actual, pero no constituye una
+identidad certificada externamente. No se afirma no repudio juridico.
+Una firma valida tampoco impide que una copia antigua valida de la
+BD sea restaurada ni impide borrar datos.
+
+======================================================================
+6. CONTRATOS DE MODULOS (PARA DESARROLLO EN PARALELO)
+======================================================================
+
+DEFINIR ESTAS FIRMAS ANTES DE IMPLEMENTAR. Si se modifican, actualizar
+el contrato y comunicarlo al companero ANTES de hacer merge.
+
+models.py (compartido, acordado al comienzo)
+- UserRecord: campos exactos de users.
+- NoteRecord: campos exactos de notes.
+- Session: user_id, username, dek (bytes), rsa_private_key (objeto).
+  No serializar Session ni imprimir su representacion con secretos.
+- Excepciones: AuthenticationError, AuthorizationError,
+  IntegrityError, SignatureValidationError, NotFoundError,
+  KeyUnlockError, ValidationError, StorageError.
+
+formats.py (Persona B)
+- canonical_bytes(obj: dict) -> bytes
+- note_plaintext_bytes(title: str, body: str) -> bytes
+- parse_note_plaintext(raw: bytes) -> tuple[str, str]
+- note_aad(owner_id: str, note_id: str, version: int=1) -> bytes
+- wrap_aad(user_id: str, purpose: str, version: int=1) -> bytes
+- signed_note_bytes(note: NoteRecord) -> bytes
+
+crypto.py (Persona B)
+- generate_dek() -> bytes
+- aesgcm_encrypt(key: bytes, data: bytes, aad: bytes,
+                 forbidden_nonces: set[bytes] | None=None)
+                 -> tuple[bytes, bytes]   # nonce, ciphertext+tag
+- aesgcm_decrypt(key: bytes, nonce: bytes,
+                 ciphertext: bytes, aad: bytes) -> bytes
+- Conversion de InvalidTag a IntegrityError, sin exponer datos.
+- os.urandom(12) para nonces; comprobar tamano de claves y nonce.
+- No almacenar estado compartido secreto en variables globales.
+
+signatures.py (Persona B)
+- generate_rsa_keypair() -> (private_key, public_key)
+- serialize_private_key_der(private_key) -> bytes
+- serialize_public_key_der(public_key) -> bytes
+- load_private_key_der(raw: bytes) -> private_key
+- load_public_key_der(raw: bytes) -> public_key
+- sign_bytes(private_key, message: bytes) -> bytes
+- verify_bytes(public_key, message: bytes, signature: bytes) -> None
+  (eleva SignatureValidationError si la firma es invalida).
+- Comprobar PSS/MGF1/SHA-256 y parametrizacion coherente.
+
+keys.py (Persona A, llamando funciones de crypto/signatures)
+- derive_kek(password: str, salt: bytes, iterations: int) -> bytes
+- generate_protected_user_keys(user_id: str, password: str)
+  -> campos kdf_salt, kdf_iterations, dek_nonce, encrypted_dek,
+     rsa_nonce, encrypted_private_key, public_key_der.
+- unlock_user_keys(user: UserRecord, password: str)
+  -> tuple[bytes, private_key].
+- Las dos envolturas con la KEK usan nonces distintos; evitar
+  accidentalmente usar el mismo nonce para ambos secretos.
+- Mantener cualquier secreto en memoria solo mientras sea necesario.
+  En Python no prometer borrado de memoria infalible.
+
+storage.py (Persona A)
+- class Storage:
+    __init__(path: str)
+    init_db() -> None
+    create_user(user: UserRecord) -> None
+    get_user_by_username(username: str) -> UserRecord | None
+    insert_note(note: NoteRecord) -> None
+    list_notes(owner_id: str) -> list[NoteRecord]
+    get_note_for_owner(note_id: str, owner_id: str) -> NoteRecord | None
+- Instanciar Storage con ruta local configurable (temporal en tests).
+- La misma instancia gestiona conexiones/operaciones transaccionales.
+- No permitir actualizar columnas criptograficas de forma silenciosa.
+
+auth.py (Persona A)
+- register(storage: Storage, username: str, password: str) -> UserRecord
+- login(storage: Storage, username: str, password: str) -> Session
+- Funciones de validacion de entrada y duplicados.
+- Comprobar bcrypt ANTES de derivar/desbloquear las claves.
+- Mensajes de login incorrecto genericos, sin indicar que usuario existe.
+
+service.py (integracion de ambos)
+- create_note(storage: Storage, session: Session,
+              title: str, body: str) -> str
+- list_notes(storage: Storage, session: Session) -> list[NoteRecord]
+- open_note(storage: Storage, session: Session,
+            note_id: str) -> tuple[str, str]
+- verify_note_signature(storage: Storage, session: Session,
+                        note_id: str) -> bool
+- Orquesta formats + crypto + signatures + storage y controles de acceso.
+- Si insert_note rechaza por nonce ya existente, volver a cifrar
+  con un nonce nuevo y FIRMAR de nuevo antes de reintentar.
+- NO devolver plaintext ante ningun fallo de verificacion.
+
+cli.py y main.py (integracion)
+- Menus y validacion superficial de entradas; no implementar aqui AES,
+  RSA, SQL ni KDFs.
+- Capturar solo excepciones esperadas y ofrecer mensajes seguros.
+- Nunca imprimir hash de contrasena, KEK, DEK ni privada RSA.
+
+Si una firma no esta aun implementada, usar un stub que lance
+NotImplementedError. NO implementar primitivas caseras como sustituto.
+
+======================================================================
+7. ORDEN DE IMPLEMENTACION: HITOS Y CRITERIOS DE ACEPTACION
+======================================================================
+
+ESTADOS: [ ] pendiente | [~] en curso | [x] completo y verificado
+Marcar [x] solo con pruebas reproducibles y commit registrado.
+
+FASE 0 - PREPARAR EL ENTORNO (ambos)
+[ ] F0.1  Crear .gitignore, requirements.txt, estructura y tests/.
+[ ] F0.2  Crear entorno virtual e instalar cryptography y bcrypt.
+[ ] F0.3  Comprobar que python main.py arranca sin errores.
+[ ] F0.4  Crear modelos/excepciones y acordar firmas de modulos.
+[ ] F0.5  Confirmar ramas, ownership y estrategia de integracion.
+ACEPTACION: importaciones basicas funcionan; no hay secretos en git.
+
+FASE 1 - CONTRATOS Y PRIMITIVAS CRIPTOGRAFICAS (Persona B)
+[ ] F1.1  Crear formats.py con serializacion canonica y AAD.
+[ ] F1.2  Crear crypto.py con AESGCM 256, 12 bytes nonce y manejo de tag.
+[ ] F1.3  Crear signatures.py con RSA 2048/PSS/SHA256 y DER.
+[ ] F1.4  Prueba cifrar -> descifrar con AAD identica.
+[ ] F1.5  Pruebas negativas: modificar ciphertext, tag, AAD, nonce.
+[ ] F1.6  Firmar/verificar; fallo con bytes o firma modificados.
+[ ] F1.7  Tests de formatos: mismas entradas = mismos bytes.
+ACEPTACION: tests crypto/signatures/formats pasan aislados.
+
+FASE 2 - CUENTAS, PERSISTENCIA Y SECRETOS (Persona A)
+[ ] F2.1  Crear tablas users/notes, indices, foreign keys y transacciones.
+[ ] F2.2  Registro con nombre unico, validacion y bcrypt.
+[ ] F2.3  Derivar KEK con PBKDF2, sal distinta de bcrypt.
+[ ] F2.4  Crear DEK y RSA; envolver DEK y privada con AES-GCM+AAD.
+[ ] F2.5  Guardar SOLO valores protegidos, hashes y clave publica.
+[ ] F2.6  Login: bcrypt, KEK, descifrado de DEK y privada en memoria.
+[ ] F2.7  Denegar contrasena falsa, usuario inexistente y registro duplicado.
+[ ] F2.8  Si el wrapping/clave almacenada esta manipulado, fallo seguro.
+[ ] F2.9  Pruebas de BD persistente y ruta temporal de tests.
+ACEPTACION: reiniciar aplicacion permite relogin; BD no tiene secretos
+sin cifrar; tests auth/keys/storage pasan.
+
+FASE 3 - NOTAS CIFRADAS Y FIRMADAS (integracion)
+[ ] F3.1  Crear service.py y generar IDs de notas unicos.
+[ ] F3.2  Cifrar titulo+cuerpo con AES-GCM y AAD de owner/id/version.
+[ ] F3.3  Firmar metadatos+nonce+ciphertext/tag canonicos con RSA-PSS.
+[ ] F3.4  Guardar notas solo con campos definidos en SQLite.
+[ ] F3.5  Listar unicamente notas del usuario autenticado.
+[ ] F3.6  Leer: comprobar owner, firma, tag y parseo antes de mostrar.
+[ ] F3.7  Comando para verificar firma, con resultado valido/invalido.
+[ ] F3.8  Validar version, longitudes, tipos y valores corruptos.
+[ ] F3.9  Controlar colision de nonce por clave (UNIQUE + reintento).
+ACEPTACION: crear nota -> cerrar -> reiniciar -> login -> recuperar
+contenido; usuario B no puede acceder a notas de usuario A.
+
+FASE 4 - CONSOLA Y EXPERIENCIA DE USO (integracion)
+[ ] F4.1  Menu inicial: registrarse, iniciar sesion, salir.
+[ ] F4.2  Menu autenticado: crear, listar, leer, verificar, logout.
+[ ] F4.3  Entrada de contrasena con getpass (no eco en terminal).
+[ ] F4.4  Mensajes de error claros sin imprimir secretos.
+[ ] F4.5  Validaciones de titulo, contenido, IDs y entrada vacia.
+[ ] F4.6  Ejemplo de uso reproducible sin credenciales precargadas.
+ACEPTACION: demostracion de extremo a extremo sin modificar codigo.
+
+FASE 5 - PRUEBAS NEGATIVAS, CALIDAD Y REVISION (ambos)
+[ ] F5.1  Tamper: un byte en ciphertext -> rechazo de nota.
+[ ] F5.2  Tamper: tag GCM -> InvalidTag/IntegrityError y rechazo.
+[ ] F5.3  Tamper: firma RSA -> SignatureValidationError y rechazo.
+[ ] F5.4  Tamper: AAD/owner_id/note_id -> rechazo.
+[ ] F5.5  Clave AES equivocada -> rechazo sin mostrar contenido.
+[ ] F5.6  Contrasena equivocada -> no iniciar sesion ni derivar sesion.
+[ ] F5.7  Nonce duplicado -> restriccion detecta y se reintenta.
+[ ] F5.8  Public key alterada -> firma invalida (documentar confianza).
+[ ] F5.9  Acceso a nota ajena -> no autorizado/no encontrada.
+[ ] F5.10 Dato truncado/formato version desconocida -> rechazo.
+[ ] F5.11 Prueba de reutilizacion/replay: documentar limitacion real.
+[ ] F5.12 Revisar excepciones, SQL parametrizado y ausencia de secretos.
+[ ] F5.13 Correr toda la bateria de tests desde entorno limpio.
+ACEPTACION: 100% de pruebas obligatorias pasan. La demostracion
+negativa permite capturar pantallas sin divulgar datos sensibles.
+
+FASE 6 - DOCUMENTACION, ENTREGA Y DEFENSA (ambos)
+[ ] F6.1  Fijar versiones exactas de dependencias realmente utilizadas.
+[ ] F6.2  README alineado con FUNCIONES QUE YA EXISTEN.
+[ ] F6.3  Documentar instalacion/ejecucion desde cero y test command.
+[ ] F6.4  Capturas de registro, login, cifrado, lectura y verificaciones.
+[ ] F6.5  Memoria con max. 13 paginas (sin portada ni anexos), letra 11,
+           interlineado sencillo, Arial/Calibri/Times New Roman.
+[ ] F6.6  Explicar algoritmos, parametros, gestion de claves y AAD.
+[ ] F6.7  Explicar >= 3 amenazas y mitigaciones reales; limitaciones.
+[ ] F6.8  Ensayar preguntas individuales sobre modulos ajenos.
+[ ] F6.9  Revisar git status y limpiar secretos/datos personales.
+[ ] F6.10 Tag de version y entrega/commit reproducible.
+ACEPTACION: una persona externa puede instalar, ejecutar y reproducir
+las pruebas sin credenciales ni secretos proporcionados por el equipo.
+
+======================================================================
+8. DIVISION DE TRABAJO PARA DOS PERSONAS / DOS IA
+======================================================================
+
+PERSONA A (cuentas + BD + proteccion de claves)
+Responsabilidad primaria:
+    storage.py, auth.py, keys.py, test_auth.py, test_keys.py,
+    test_storage.py.
+Necesita consumir: crypto.aesgcm_encrypt/decrypt y signatures.*.
+Puede trabajar con stubs mientras B implementa las primitivas.
+No modificar crypto.py, signatures.py o formats.py sin coordinacion.
+
+PERSONA B (primitivas criptograficas + formato)
+Responsabilidad primaria:
+    crypto.py, signatures.py, formats.py, test_crypto.py,
+    test_signatures.py y pruebas de formato.
+Necesita consumir: modelos compartidos y formato de NoteRecord.
+No modificar auth.py, keys.py o storage.py sin coordinacion.
+
+COMPARTIDO
+    models.py (congelar al principio), service.py, cli.py, main.py,
+    test_integration.py, requirements.txt, .gitignore, README y memoria.
+La persona que integra tiene responsabilidad de fusionar, pero ambas
+revisan el PR y ejecutan los tests completos.
+
+FLUJO DE GIT SUGERIDO
+1. Crear rama feat/auth-storage (A) y feat/crypto-signatures (B).
+2. Acordar primero models.py y las firmas de la seccion 6.
+3. Cada uno desarrolla en su rama con commits pequenos y tests propios.
+4. Hacer PR, revisar la interfaz y fusionar sin sobrescribir codigo.
+5. Integrar en rama feat/integration, lanzar bateria completa de tests.
+6. Actualizar este plan y registrar los commits/hitos integrados.
+7. No hacer force push a ramas del companero; resolver conflictos juntos.
+
+INSTRUCCION A LA IA DE CADA INTEGRANTE
+"Antes de programar, lee Practica_final.pdf, la propuesta actualizada y
+IMPLEMENTATION_PLAN.txt. Revisa el contenido REAL del repositorio.
+Identifica que tareas de tu responsable ya tienen codigo y tests
+pasando. Implementa solo las pendientes, sin romper contratos. Aporta
+pruebas, indica archivos modificados y actualiza estado/commit. Si
+encuentras discrepancias, no inventes componentes: documentalas y
+pide coordinacion sobre el contrato afectado".
+
+======================================================================
+9. CASOS DE USO Y RESULTADOS ESPERADOS
+======================================================================
+
+CASO 1 - REGISTRO
+- Usuario introduce nombre y contrasena.
+- Validar, normalizar nombre, comprobar duplicado.
+- bcrypt genera hash+sal interna.
+- PBKDF2 genera KEK usando sal distinta.
+- Se genera DEK AES-256 y par RSA 2048.
+- Cifrar DEK y privada RSA por separado con KEK (nonce distinto/AAD).
+- Guardar cuenta atomica sin secretos en claro.
+
+CASO 2 - LOGIN
+- Buscar usuario; bcrypt.checkpw valida.
+- Con la contrasena valida, PBKDF2 vuelve a derivar KEK.
+- Descifrar las dos claves protegidas, comprobando sus tags.
+- Si alguna comprobacion falla, no se crea Session.
+- Solo las claves desbloqueadas permanecen en la sesion activa.
+
+CASO 3 - CREAR NOTA
+- Requiere Session autentificada.
+- Generar note_id; serializar titulo+cuerpo.
+- Crear AAD con user_id + note_id + version; AES-GCM encrypt.
+- Crear registro provisional; firmar bytes canonicos con RSA-PSS.
+- Guardar nonce, ciphertext+tag, firma, owner, id y version.
+
+CASO 4 - LEER NOTA
+- Buscar por (note_id, owner_id) para impedir acceso entre cuentas.
+- Verificar firma usando la publica de la cuenta local.
+- Reconstruir AAD, descifrar con DEK y validar tag.
+- Parsear JSON solo si la autenticacion GCM fue correcta.
+- Mostrar titulo/cuerpo. Si falla algo, no mostrarlos.
+
+CASO 5 - VERIFICAR FIRMA
+- Recuperar nota propia.
+- Recomponer payload firmado y validar RSA-PSS con publica local.
+- Mostrar firma valida o invalida. No equivale a certificado externo.
+
+======================================================================
+10. PLAN DE PRUEBAS DETALLADO
+======================================================================
+
+Pruebas unitarias (con BD temporal, datos ficticios, secretos efimeros):
+T01  bcrypt: checkpw correcto -> True.
+T02  bcrypt: contrasena incorrecta -> False; sin sesion.
+T03  Dos hashes bcrypt de igual contrasena no son necesariamente iguales.
+T04  PBKDF2: mismo password/salt/iteraciones = misma KEK.
+T05  PBKDF2: cambiar salt = KEK distinta.
+T06  Wrap/unlock de DEK y privada RSA exitoso con misma KEK.
+T07  Alterar un ciphertext de clave protegida: unlock falla.
+T08  AES-GCM ida/vuelta con datos UTF-8 validos.
+T09  AES-GCM: tag/ciphertext/nonce/AAD incorrectos -> error.
+T10  RSA-PSS firma valida y mensaje modificado invalido.
+T11  RSA-PSS firma alterada o clave publica incorrecta -> invalida.
+T12  Canonical JSON: mismo objeto = identicos bytes en otro orden.
+T13  Un usuario no obtiene notas de otro usuario.
+T14  Una nota queda cifrada: titulo/cuerpo no aparecen en BD.
+T15  Proceso nuevo/BD persistente: login y descifrado correctos.
+T16  Duplicado de username: error controlado.
+T17  Repetir nonce bajo mismo owner/DEK: UNIQUE impide insertar;
+     servicio vuelve a cifrar y firmar si corresponde.
+T18  Manipular owner_id, note_id, version o firma: rechazo.
+T19  Datos truncados, JSON malformado, version desconocida: rechazo.
+T20  Restaurar registro historico valido: documentar que el sistema
+     NO detecta necesariamente replay/rollback sin estado externo.
+
+Importante: si se cambia un byte del ciphertext en una nota completa,
+la firma puede fallar ANTES de AES-GCM. Para evidenciar ambos mecanismos
+por separado, probar tamper del tag directamente en test_crypto.py y
+tamper de firma/ciphertext en test_integration.py. No omitir controles
+para fabricar una demostracion aparentemente exitosa.
+
+Comando de referencia (ajustar si cambia estructura):
+    python -m unittest discover -s tests -v
+
+======================================================================
+11. REGLAS DE SEGURIDAD Y CALIDAD NO NEGOCIABLES
+======================================================================
+
+- No criptografia implementada a mano: usar cryptography y bcrypt.
+- No AES-ECB, DES ni AES-CBC con IV constante.
+- No reutilizar nonce GCM con la misma clave. Registrar colisiones y
+  reintentos sin imprimir secretos.
+- No almacenar ni versionar KEK, DEK o clave privada sin cifrar.
+- No guardar la contrasena en variables persistentes, logs o commits.
+- No mostrar contenido antes de verificar firma Y tag AES-GCM.
+- No usar compare de hashes SHA-256 simples para las contrasenas.
+- Usar secretos aleatorios de os.urandom o generadores de cryptography.
+- No aceptar nombre de usuario ambiguo o SQL construido con f-strings.
+- No ejecutar pruebas destructivas sobre BD real: usar ficheros temp.
+- Separar excepciones criptograficas de mensajes mostrados al usuario.
+- Revisar dependencias y fijar las versiones realmente instaladas.
+- No afirmar proteccion ante malware, atacantes con acceso a memoria,
+  robo de sesion activa, rollback integral o sustitucion de BD completa.
+- Pensar siempre en el rechazo seguro (fail closed).
+
+======================================================================
+12. COMO SE INSTALA Y EJECUTA (OBJETIVO, AUN NO VERIFICADO)
+======================================================================
+
+Comandos previstos para quien clone el repo (NO afirmar que ya corren):
+    python -m venv .venv
+    # Linux/macOS: source .venv/bin/activate
+    # Windows: .venv\Scripts\activate
+    python -m pip install -r requirements.txt
+    python main.py
+    python -m unittest discover -s tests -v
+
+El fichero requirements.txt debera contener versiones comprobadas de:
+    cryptography
+    bcrypt
+NO inventar numeros de version antes de instalar/probar el proyecto.
+No incluir bases de datos precargadas ni contrasenas de demostracion
+persistidas en el repositorio. Los tests generan sus propios usuarios.
+
+======================================================================
+13. GUIA PARA LA MEMORIA Y LA DEFENSA
+======================================================================
+
+La memoria debe responder expresamente a las preguntas del enunciado:
+1. Proposito y arquitectura interna, con diagrama SIMPLE si ayuda.
+2. Registro/autenticacion: bcrypt, sal, coste, almacenamiento y login.
+3. Cifrado: AES-256-GCM, clave, nonce, AAD, persistencia y descifrado.
+4. Integridad/autenticidad: tag GCM, comprobaciones y fallos seguros.
+5. Firma: RSA-PSS, SHA-256, tamano de clave, clave privada protegida,
+   datos exactamente firmados y prueba de firma modificada.
+6. Tests positivos/negativos; al menos tres ataques y mitigaciones.
+7. Librerias, versiones y ejecucion desde entorno limpio.
+
+Amenazas minimas a justificar con pruebas:
+- Diccionario/fuerza bruta sobre BD robada: bcrypt con coste/sal;
+  no prometemos impedir toda adivinacion de contrasenas debiles.
+- Manipulacion de ciphertext/tag/AAD: AES-GCM y rechazo seguro.
+- Falsificacion de firma/sustitucion de registro: RSA-PSS,
+  asociacion local de claves y su limitacion frente a BD comprometida.
+
+Preguntas a preparar los DOS:
+- ¿Por que no SHA-256 simple para passwords?
+- ¿Por que bcrypt para login y PBKDF2 para KEK son distintos?
+- ¿Por que la sal de PBKDF2 no es la de bcrypt?
+- ¿Que propiedades ofrece AES-GCM y para que sirve el nonce?
+- ¿Que se incluye en AAD y en la firma? ¿Por que?
+- ¿Que sucede cuando cambia un byte del ciphertext o del tag?
+- ¿Por que RSA-PSS en lugar de una firma RSA sin padding adecuado?
+- ¿Que protege la clave privada RSA al estar almacenada?
+- ¿Por que una firma valida no certifica identidad externa?
+- ¿Puede detectarse un replay o rollback historico? (No siempre).
+
+Requisitos formales: maximo 13 paginas sin portada/anexos; fuente 11
+(Calibri, Arial o Times New Roman); interlineado sencillo; capturas
+legibles; no incluir secretos reales, claves privadas ni datos
+personales innecesarios. La defensa individual tiene gran peso.
+
+======================================================================
+14. DEFINICION DE PROYECTO TERMINADO (DEFINITION OF DONE)
+======================================================================
+
+Solo se considerara terminado cuando se cumpla TODO:
+[ ] Los cuatro mecanismos criptograficos obligatorios funcionan.
+[ ] Cada clave necesaria es generada/protegida correctamente.
+[ ] Todas las pruebas relevantes pasan desde un entorno limpio.
+[ ] Hay al menos una demostracion por requisito, incluida negativa.
+[ ] La BD no contiene passwords/DEK/privadas en claro.
+[ ] Ninguna nota ajena ni manipulada se muestra al usuario.
+[ ] El README describe el software REAL, no solo el plan.
+[ ] El proyecto se ejecuta con los comandos documentados.
+[ ] La memoria y las capturas cumplen el formato del enunciado.
+[ ] Ambos desarrolladores entienden y pueden explicar el codigo entero.
+[ ] GitHub no contiene secretos, .db con usuarios ni datos personales.
+
+======================================================================
+15. ESTADO DE CONTINUACION: ACTUALIZAR DESPUES DE CADA MERGE
+======================================================================
+
+Fecha del ultimo control: 22-11-2026
+Ultimo commit revisado: NO COMPROBADO
+Rama integrada: NO COMPROBADA
+Fase activa: FASE 0 - Preparacion
+Responsable activo: Por asignar segun acuerdo de equipo
+Tests ejecutados y resultado: NINGUNO
+Archivos funcionales comprobados: NINGUNO
+Bloqueos tecnicos: NINGUNO IDENTIFICADO AUN
+Siguiente tarea concreta: F0.1 + F0.4, acordar modelos y contratos.
+
+FORMATO OBLIGATORIO DE ACTUALIZACION
+Fecha / commit / rama:
+Tareas marcadas [x] y evidencia (test que pasa):
+Archivos anadidos o modificados:
+Problemas reales encontrados:
+Contratos modificados y acuerdo de ambos:
+Siguiente tarea y responsable:
+
+No borrar el historial si se trabaja en dias diferentes. Anadir una
+entrada nueva por sesion o por PR debajo de la seccion 16.
+
+======================================================================
+16. REGISTRO DE DECISIONES Y CAMBIOS
+======================================================================
+
+2026-11-22 | PLAN INICIAL
+- Nombre publico: CipherNotes. El PDF antiguo usa NotasSeguras;
+  es el mismo proyecto, no dos aplicaciones distintas.
+- bcrypt para autenticacion; PBKDF2HMAC-SHA-256 para KEK.
+- AES-256-GCM para notas y envoltura de secretos.
+- RSA-PSS/SHA-256 con RSA-2048 para firmas.
+- Claves publicas ligadas a cuenta local; sin PKI completa.
+- Python + SQLite + consola; sin cambios de contrasena ni comparticion.
+- No hay implementacion comprobada en el momento de redactar el plan.
+
+Anadir nuevas entradas aqui, por ejemplo:
+AAAA-MM-DD | autor | commit | decision | motivo | tests afectados
+
+======================================================================
+FIN DEL PLAN
+======================================================================
