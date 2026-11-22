@@ -360,8 +360,9 @@ service.py (integracion de ambos)
 - verify_note_signature(storage: Storage, session: Session,
                         note_id: str) -> bool
 - Orquesta formats + crypto + signatures + storage y controles de acceso.
-- Si insert_note rechaza por nonce ya existente, volver a cifrar
-  con un nonce nuevo y FIRMAR de nuevo antes de reintentar.
+- Si el nonce ya existe, generar otro antes de cifrar y firmar.
+  La consulta e insercion se hacen en una transaccion de escritura.
+  La restriccion UNIQUE tambien protege la insercion en SQLite.
 - NO devolver plaintext ante ningun fallo de verificacion.
 
 cli.py y main.py (integracion)
@@ -381,86 +382,86 @@ ESTADOS: [ ] pendiente | [~] en curso | [x] completo y verificado
 Marcar [x] solo con pruebas reproducibles y commit registrado.
 
 FASE 0 - PREPARAR EL ENTORNO (ambos)
-[ ] F0.1  Crear .gitignore, requirements.txt, estructura y tests/.
-[ ] F0.2  Crear entorno virtual e instalar cryptography y bcrypt.
-[ ] F0.3  Comprobar que python main.py arranca sin errores.
-[ ] F0.4  Crear modelos/excepciones y acordar firmas de modulos.
+[x] F0.1  Crear .gitignore, requirements.txt, estructura y tests/.
+[x] F0.2  Crear entorno virtual e instalar cryptography y bcrypt.
+[x] F0.3  Comprobar que python main.py arranca sin errores.
+[~] F0.4  Crear modelos/excepciones y acordar firmas de modulos.
 [ ] F0.5  Confirmar ramas, ownership y estrategia de integracion.
 ACEPTACION: importaciones basicas funcionan; no hay secretos en git.
 
 FASE 1 - CONTRATOS Y PRIMITIVAS CRIPTOGRAFICAS (Persona B)
-[ ] F1.1  Crear formats.py con serializacion canonica y AAD.
-[ ] F1.2  Crear crypto.py con AESGCM 256, 12 bytes nonce y manejo de tag.
-[ ] F1.3  Crear signatures.py con RSA 2048/PSS/SHA256 y DER.
-[ ] F1.4  Prueba cifrar -> descifrar con AAD identica.
-[ ] F1.5  Pruebas negativas: modificar ciphertext, tag, AAD, nonce.
-[ ] F1.6  Firmar/verificar; fallo con bytes o firma modificados.
-[ ] F1.7  Tests de formatos: mismas entradas = mismos bytes.
+[x] F1.1  Crear formats.py con serializacion canonica y AAD.
+[x] F1.2  Crear crypto.py con AESGCM 256, 12 bytes nonce y manejo de tag.
+[x] F1.3  Crear signatures.py con RSA 2048/PSS/SHA256 y DER.
+[x] F1.4  Prueba cifrar -> descifrar con AAD identica.
+[x] F1.5  Pruebas negativas: modificar ciphertext, tag, AAD, nonce.
+[x] F1.6  Firmar/verificar; fallo con bytes o firma modificados.
+[x] F1.7  Tests de formatos: mismas entradas = mismos bytes.
 ACEPTACION: tests crypto/signatures/formats pasan aislados.
 
 FASE 2 - CUENTAS, PERSISTENCIA Y SECRETOS (Persona A)
-[ ] F2.1  Crear tablas users/notes, indices, foreign keys y transacciones.
-[ ] F2.2  Registro con nombre unico, validacion y bcrypt.
-[ ] F2.3  Derivar KEK con PBKDF2, sal distinta de bcrypt.
-[ ] F2.4  Crear DEK y RSA; envolver DEK y privada con AES-GCM+AAD.
-[ ] F2.5  Guardar SOLO valores protegidos, hashes y clave publica.
-[ ] F2.6  Login: bcrypt, KEK, descifrado de DEK y privada en memoria.
-[ ] F2.7  Denegar contrasena falsa, usuario inexistente y registro duplicado.
-[ ] F2.8  Si el wrapping/clave almacenada esta manipulado, fallo seguro.
-[ ] F2.9  Pruebas de BD persistente y ruta temporal de tests.
+[x] F2.1  Crear tablas users/notes, indices, foreign keys y transacciones.
+[x] F2.2  Registro con nombre unico, validacion y bcrypt.
+[x] F2.3  Derivar KEK con PBKDF2, sal distinta de bcrypt.
+[x] F2.4  Crear DEK y RSA; envolver DEK y privada con AES-GCM+AAD.
+[x] F2.5  Guardar SOLO valores protegidos, hashes y clave publica.
+[x] F2.6  Login: bcrypt, KEK, descifrado de DEK y privada en memoria.
+[x] F2.7  Denegar contrasena falsa, usuario inexistente y registro duplicado.
+[x] F2.8  Si el wrapping/clave almacenada esta manipulado, fallo seguro.
+[x] F2.9  Pruebas de BD persistente y ruta temporal de tests.
 ACEPTACION: reiniciar aplicacion permite relogin; BD no tiene secretos
 sin cifrar; tests auth/keys/storage pasan.
 
 FASE 3 - NOTAS CIFRADAS Y FIRMADAS (integracion)
-[ ] F3.1  Crear service.py y generar IDs de notas unicos.
-[ ] F3.2  Cifrar titulo+cuerpo con AES-GCM y AAD de owner/id/version.
-[ ] F3.3  Firmar metadatos+nonce+ciphertext/tag canonicos con RSA-PSS.
-[ ] F3.4  Guardar notas solo con campos definidos en SQLite.
-[ ] F3.5  Listar unicamente notas del usuario autenticado.
-[ ] F3.6  Leer: comprobar owner, firma, tag y parseo antes de mostrar.
-[ ] F3.7  Comando para verificar firma, con resultado valido/invalido.
-[ ] F3.8  Validar version, longitudes, tipos y valores corruptos.
-[ ] F3.9  Controlar colision de nonce por clave (UNIQUE + reintento).
+[x] F3.1  Crear service.py y generar IDs de notas unicos.
+[x] F3.2  Cifrar titulo+cuerpo con AES-GCM y AAD de owner/id/version.
+[x] F3.3  Firmar metadatos+nonce+ciphertext/tag canonicos con RSA-PSS.
+[x] F3.4  Guardar notas solo con campos definidos en SQLite.
+[x] F3.5  Listar unicamente notas del usuario autenticado.
+[x] F3.6  Leer: comprobar owner, firma, tag y parseo antes de mostrar.
+[x] F3.7  Comando para verificar firma, con resultado valido/invalido.
+[x] F3.8  Validar version, longitudes, tipos y valores corruptos.
+[x] F3.9  Controlar colision de nonce por clave (UNIQUE + reintento).
 ACEPTACION: crear nota -> cerrar -> reiniciar -> login -> recuperar
 contenido; usuario B no puede acceder a notas de usuario A.
 
 FASE 4 - CONSOLA Y EXPERIENCIA DE USO (integracion)
-[ ] F4.1  Menu inicial: registrarse, iniciar sesion, salir.
-[ ] F4.2  Menu autenticado: crear, listar, leer, verificar, logout.
-[ ] F4.3  Entrada de contrasena con getpass (no eco en terminal).
-[ ] F4.4  Mensajes de error claros sin imprimir secretos.
-[ ] F4.5  Validaciones de titulo, contenido, IDs y entrada vacia.
-[ ] F4.6  Ejemplo de uso reproducible sin credenciales precargadas.
+[x] F4.1  Menu inicial: registrarse, iniciar sesion, salir.
+[x] F4.2  Menu autenticado: crear, listar, leer, verificar, logout.
+[x] F4.3  Entrada de contrasena con getpass (no eco en terminal).
+[x] F4.4  Mensajes de error claros sin imprimir secretos.
+[x] F4.5  Validaciones de titulo, contenido, IDs y entrada vacia.
+[x] F4.6  Ejemplo de uso reproducible sin credenciales precargadas.
 ACEPTACION: demostracion de extremo a extremo sin modificar codigo.
 
 FASE 5 - PRUEBAS NEGATIVAS, CALIDAD Y REVISION (ambos)
-[ ] F5.1  Tamper: un byte en ciphertext -> rechazo de nota.
-[ ] F5.2  Tamper: tag GCM -> InvalidTag/IntegrityError y rechazo.
-[ ] F5.3  Tamper: firma RSA -> SignatureValidationError y rechazo.
-[ ] F5.4  Tamper: AAD/owner_id/note_id -> rechazo.
-[ ] F5.5  Clave AES equivocada -> rechazo sin mostrar contenido.
-[ ] F5.6  Contrasena equivocada -> no iniciar sesion ni derivar sesion.
-[ ] F5.7  Nonce duplicado -> restriccion detecta y se reintenta.
-[ ] F5.8  Public key alterada -> firma invalida (documentar confianza).
-[ ] F5.9  Acceso a nota ajena -> no autorizado/no encontrada.
-[ ] F5.10 Dato truncado/formato version desconocida -> rechazo.
-[ ] F5.11 Prueba de reutilizacion/replay: documentar limitacion real.
-[ ] F5.12 Revisar excepciones, SQL parametrizado y ausencia de secretos.
-[ ] F5.13 Correr toda la bateria de tests desde entorno limpio.
+[x] F5.1  Tamper: un byte en ciphertext -> rechazo de nota.
+[x] F5.2  Tamper: tag GCM -> InvalidTag/IntegrityError y rechazo.
+[x] F5.3  Tamper: firma RSA -> SignatureValidationError y rechazo.
+[x] F5.4  Tamper: AAD/owner_id/note_id -> rechazo.
+[x] F5.5  Clave AES equivocada -> rechazo sin mostrar contenido.
+[x] F5.6  Contrasena equivocada -> no iniciar sesion ni derivar sesion.
+[x] F5.7  Nonce duplicado -> restriccion detecta y se reintenta.
+[x] F5.8  Public key alterada -> firma invalida (documentar confianza).
+[x] F5.9  Acceso a nota ajena -> no autorizado/no encontrada.
+[x] F5.10 Dato truncado/formato version desconocida -> rechazo.
+[x] F5.11 Prueba de reutilizacion/replay: documentar limitacion real.
+[x] F5.12 Revisar excepciones, SQL parametrizado y ausencia de secretos.
+[x] F5.13 Correr toda la bateria de tests desde entorno limpio.
 ACEPTACION: 100% de pruebas obligatorias pasan. La demostracion
 negativa permite capturar pantallas sin divulgar datos sensibles.
 
 FASE 6 - DOCUMENTACION, ENTREGA Y DEFENSA (ambos)
-[ ] F6.1  Fijar versiones exactas de dependencias realmente utilizadas.
-[ ] F6.2  README alineado con FUNCIONES QUE YA EXISTEN.
-[ ] F6.3  Documentar instalacion/ejecucion desde cero y test command.
+[x] F6.1  Fijar versiones exactas de dependencias realmente utilizadas.
+[x] F6.2  README alineado con FUNCIONES QUE YA EXISTEN.
+[x] F6.3  Documentar instalacion/ejecucion desde cero y test command.
 [ ] F6.4  Capturas de registro, login, cifrado, lectura y verificaciones.
 [ ] F6.5  Memoria con max. 13 paginas (sin portada ni anexos), letra 11,
            interlineado sencillo, Arial/Calibri/Times New Roman.
 [ ] F6.6  Explicar algoritmos, parametros, gestion de claves y AAD.
 [ ] F6.7  Explicar >= 3 amenazas y mitigaciones reales; limitaciones.
 [ ] F6.8  Ensayar preguntas individuales sobre modulos ajenos.
-[ ] F6.9  Revisar git status y limpiar secretos/datos personales.
+[~] F6.9  Revisar git status y limpiar secretos/datos personales.
 [ ] F6.10 Tag de version y entrega/commit reproducible.
 ACEPTACION: una persona externa puede instalar, ejecutar y reproducir
 las pruebas sin credenciales ni secretos proporcionados por el equipo.
@@ -684,14 +685,14 @@ Solo se considerara terminado cuando se cumpla TODO:
 ======================================================================
 
 Fecha del ultimo control: 22-11-2026
-Ultimo commit revisado: NO COMPROBADO
-Rama integrada: NO COMPROBADA
-Fase activa: FASE 0 - Preparacion
-Responsable activo: Por asignar segun acuerdo de equipo
-Tests ejecutados y resultado: NINGUNO
-Archivos funcionales comprobados: NINGUNO
-Bloqueos tecnicos: NINGUNO IDENTIFICADO AUN
-Siguiente tarea concreta: F0.1 + F0.4, acordar modelos y contratos.
+Ultimo commit revisado: a7a88d3 (base remota: main en 91b1e6a)
+Rama integrada: feat/integration local, pendiente de PR y revision del equipo
+Fase activa: FASE 6 - Revision con el equipo y preparacion de entrega
+Responsable activo: Por acordar entre los dos integrantes
+Tests ejecutados y resultado: 27 OK en Python 3.12.14 (Linux)
+Archivos funcionales comprobados: main.py, modulos Python y tests/
+Bloqueos tecnicos: Ninguno para las pruebas locales. Windows pendiente de ejecucion.
+Siguiente tarea concreta: probar en Windows y revisar el PR con el companero.
 
 FORMATO OBLIGATORIO DE ACTUALIZACION
 Fecha / commit / rama:
@@ -717,6 +718,22 @@ entrada nueva por sesion o por PR debajo de la seccion 16.
 - Claves publicas ligadas a cuenta local; sin PKI completa.
 - Python + SQLite + consola; sin cambios de contrasena ni comparticion.
 - No hay implementacion comprobada en el momento de redactar el plan.
+
+2026-11-22 | Primera implementacion en feat/integration (local)
+- c698306: entorno, modelos, formatos, AES-GCM y RSA-PSS.
+- de04b5f: autenticacion, claves protegidas y SQLite.
+- a7a88d3: servicio de notas, consola, pruebas de integracion y README.
+- 27 tests pasan, incluidos nonce repetido y concurrencia, firma/tag
+  alterados, credenciales incorrectas, separacion de cuentas y rollback.
+- Consola probada en dos procesos con SQLite temporal. Se recupera la
+  nota al reiniciar y se rechaza la lectura si se modifica la firma.
+- CPython 3.12.14, bcrypt 5.0.0 y cryptography 50.0.0. En Linux,
+  medianas de 5 mediciones: bcrypt coste 12, 335 ms; PBKDF2 600000,
+  98 ms. Se verifico la disponibilidad de paquetes para Windows x64.
+- El servicio comprueba el nonce dentro de una transaccion de escritura
+  antes de cifrar, con UNIQUE como segunda comprobacion. Se conservan
+  los formatos canonicos y las interfaces principales del plan.
+- Revision, rama compartida, capturas, memoria y defensa pendientes.
 
 Anadir nuevas entradas aqui, por ejemplo:
 AAAA-MM-DD | autor | commit | decision | motivo | tests afectados

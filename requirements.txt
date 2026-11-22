@@ -1,0 +1,4 @@
+bcrypt==5.0.0
+cryptography==50.0.0
+cffi==2.1.1; platform_python_implementation != "PyPy"
+pycparser==3.12; platform_python_implementation != "PyPy"
